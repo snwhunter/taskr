@@ -5,7 +5,10 @@ from __future__ import annotations
 import calendar
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+import logging
+from logging.handlers import RotatingFileHandler
 import queue
+import re
 import threading
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
@@ -21,6 +24,31 @@ from taskr.storage.sqlite import SQLiteTaskStore
 # to identify in screenshots and support requests.
 APP_VERSION = creation_timestamp_id()
 TABLE_COLUMNS = tuple(column for column in VISIBLE_COLUMNS if column != "Task")
+LOGGER = logging.getLogger("taskr")
+
+
+def safe_error(error: BaseException) -> str:
+    """Return a useful error description without leaking common credentials."""
+    message = f"{type(error).__name__}: {error}".strip()
+    patterns = (
+        (r"(?i)(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+", r"\1[redacted]"),
+        (r"(?i)(api[_-]?key|token|password|secret)(\s*[:=]\s*)[^\s,;&]+", r"\1\2[redacted]"),
+        (r"([?&](?:key|token|password|secret)=)[^&\s]+", r"\1[redacted]"),
+    )
+    for pattern, replacement in patterns:
+        message = re.sub(pattern, replacement, message)
+    return message
+
+
+def configure_logging(path) -> None:
+    """Persist diagnostics across launches without allowing unbounded growth."""
+    if LOGGER.handlers: return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(path, maxBytes=512_000, backupCount=2, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    LOGGER.addHandler(handler)
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
 
 
 def window_title(version: str = APP_VERSION) -> str:
@@ -351,6 +379,7 @@ class TaskrApp(ttk.Frame):
     def __init__(self, master: tk.Tk, config: AppConfig, store: SQLiteTaskStore) -> None:
         super().__init__(master, padding=10); self.pack(fill="both", expand=True)
         self.config, self.store, self.tasks = config, store, []
+        configure_logging(store.path.with_name("taskr.log"))
         master.title(window_title()); master.geometry("1180x650")
         toolbar = ttk.Frame(self); toolbar.pack(fill="x", pady=(0, 8))
         ttk.Button(toolbar, text="Add Tasks", command=self.open_add_tasks).pack(side="left")
@@ -366,11 +395,39 @@ class TaskrApp(ttk.Frame):
         ttk.Button(toolbar, text="Rename", command=self.rename_view).pack(side="left", padx=6)
         self.sync_text = tk.StringVar(value="Sync: checking…")
         ttk.Label(toolbar, textvariable=self.sync_text).pack(side="right")
+        ttk.Button(toolbar, text="Logs", command=self.toggle_logs).pack(side="right", padx=(0, 8))
         self.tabs = ttk.Notebook(self); self.tabs.pack(fill="both", expand=True)
         self.tabs.bind("<<NotebookTabChanged>>", self.show_view_mode)
         self.views: list[ViewPane] = []
         for settings in config.views: self._append_view(settings)
+        self.log_panel = ttk.Frame(self, padding=(0, 8, 0, 0))
+        log_actions = ttk.Frame(self.log_panel); log_actions.pack(fill="x")
+        ttk.Label(log_actions, text="Diagnostics").pack(side="left")
+        ttk.Button(log_actions, text="Copy", command=self.copy_logs).pack(side="right")
+        ttk.Button(log_actions, text="Clear", command=self.clear_logs).pack(side="right", padx=6)
+        self.log_text = tk.Text(self.log_panel, height=8, wrap="word", state="disabled")
+        self.log_text.pack(fill="both", expand=True, pady=(4, 0))
+        self._log("INFO", f"Taskr {APP_VERSION} started; log file: {store.path.with_name('taskr.log')}")
         self.refresh()
+
+    def toggle_logs(self) -> None:
+        if self.log_panel.winfo_manager(): self.log_panel.pack_forget()
+        else: self.log_panel.pack(fill="both", expand=False)
+
+    def _log(self, level: str, message: str) -> None:
+        message = safe_error(Exception(message)).removeprefix("Exception: ")
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        LOGGER.log(getattr(logging, level), message)
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", f"{stamp} {level} {message}\n")
+        self.log_text.see("end"); self.log_text.configure(state="disabled")
+
+    def clear_logs(self) -> None:
+        self.log_text.configure(state="normal"); self.log_text.delete("1.0", "end")
+        self.log_text.configure(state="disabled")
+
+    def copy_logs(self) -> None:
+        self.clipboard_clear(); self.clipboard_append(self.log_text.get("1.0", "end-1c"))
 
     def change_mode(self, _event: tk.Event | None = None) -> None:
         names = {"ac": "category0", "vehicles": "category1", "home": "category2"}
@@ -456,11 +513,14 @@ class TaskrApp(ttk.Frame):
                                (f"Sync: last {state.last_sync.replace('T', ' ')[:19]} UTC"
                                 if state.last_sync else "Sync: never"))
             self._start_sync()
-        except Exception as error: messagebox.showerror("Load failed", str(error))
+        except Exception as error:
+            self._log("ERROR", f"Local load failed: {safe_error(error)}")
+            messagebox.showerror("Load failed", safe_error(error))
 
     def _start_sync(self) -> None:
         if getattr(self, "_syncing", False): return
         self._syncing = True; self.sync_text.set("Sync: syncing…")
+        self._log("INFO", "Sync started")
         results: queue.Queue[Exception | None] = queue.Queue()
 
         def work() -> None:
@@ -474,12 +534,15 @@ class TaskrApp(ttk.Frame):
             self._syncing = False
             if error:
                 pending = self.store.state().pending
-                self.sync_text.set(f"Sync: offline ({pending} pending)")
+                detail = safe_error(error)
+                self.sync_text.set(f"Sync: offline ({pending} pending) — {detail}")
+                self._log("ERROR", f"Sync failed; {pending} pending: {detail}")
                 return
             self.tasks = self.store.list()
             for view in self.views: view.render()
             state = self.store.state()
             self.sync_text.set(f"Sync: last {state.last_sync.replace('T', ' ')[:19]} UTC")
+            self._log("INFO", f"Sync completed; {state.pending} pending")
             if state.pending: self._start_sync()
 
         def poll() -> None:
