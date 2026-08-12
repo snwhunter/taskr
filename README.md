@@ -97,4 +97,7 @@ left-aligned while the other columns are centered.
 The toolbar shows whether synchronization is running, when it last succeeded,
 or whether the app is offline and has pending changes. Refresh and every local
 edit trigger a background sync; the UI continues to use the SQLite cache while
-the Apps Script request is in flight.
+the Apps Script request is in flight. When synchronization fails, the status
+includes the safe error summary. Use **Logs** to open a diagnostic panel with
+copy and clear actions. Diagnostics are also retained in a rotating `taskr.log`
+beside the SQLite cache; common credential values are redacted.

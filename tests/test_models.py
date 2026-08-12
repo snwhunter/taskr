@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from taskr.app import appended_note, target_date, task_matches, window_title
+from taskr.app import appended_note, safe_error, target_date, task_matches, window_title
 from taskr.models.task import TASK_COLUMNS, Status, Task, initial_priority
 from taskr.storage.config import ViewConfig
 
@@ -28,6 +28,12 @@ def test_dates_and_validation():
 
 def test_window_title_includes_timestamp_version():
     assert window_title("260807123456") == "taskr - version: 260807123456"
+
+
+def test_safe_error_redacts_credentials():
+    message = safe_error(OSError("token=abc123 api_key: xyz password=hunter2"))
+    assert "abc123" not in message and "xyz" not in message and "hunter2" not in message
+    assert message.count("[redacted]") == 3
 
 
 def test_configured_view_filters_and_parent_round_trip():
