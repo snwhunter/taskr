@@ -43,24 +43,14 @@ def task_matches(task: Task, view: ViewConfig) -> bool:
     except ValueError as error:
         raise ValueError("Dates must use YYYY-MM-DD.") from error
     if (
-        (view.category and task.category != view.category)
-        or (view.reference and task.reference != view.reference)
+        task.mode != view.mode
         or (view.status and task.status.value != view.status)
-        or (task.target and ((start and task.target < start) or (end and task.target > end)))
+        or (task.required and ((start and task.required < start) or (end and task.required > end)))
     ):
         return False
     record = task.to_record()
     return all(record.get(column, "") in selected
                for column, selected in view.column_filters.items())
-
-
-def add_task_filter_value(view: ViewConfig, column: str) -> str:
-    """Return an unambiguous Category/Reference value from the active view."""
-    configured = getattr(view, column.lower())
-    if configured:
-        return configured
-    selected = view.column_filters.get(column, [])
-    return selected[0] if len(selected) == 1 else ""
 
 
 def appended_note(existing: str, addition: str, user: str, now: datetime | None = None) -> str:
@@ -244,12 +234,10 @@ class ViewPane(ttk.Frame):
         inserted: set[str] = set()
         while pending:
             ready = [task for task in pending
-                     if not (task.tags or {}).get("parent")
-                     or (task.tags or {}).get("parent") not in ids
-                     or (task.tags or {}).get("parent") in inserted]
+                     if not task.parent or task.parent not in ids or task.parent in inserted]
             if not ready: ready = pending[:]
             for task in ready:
-                parent = str((task.tags or {}).get("parent", ""))
+                parent = task.parent
                 ordered.append((task, parent if parent in inserted else ""))
                 inserted.add(task.id); pending.remove(task)
         for task, tree_parent in ordered:
@@ -297,7 +285,7 @@ class ViewPane(ttk.Frame):
         if (name == "Notes" and note_edit is None) or (name != "Notes" and value is None): return
         converted: object = note_edit[1] if note_edit else value
         try:
-            if name == "Target": converted = date.fromisoformat(value) if value else None
+            if name == "Required": converted = date.fromisoformat(value) if value else None
             if name == "Status": converted = Status(value)
             for selected_task in tasks:
                 selected_value = converted
@@ -317,12 +305,9 @@ class ViewPane(ttk.Frame):
         task = self.selected_task()
         if not task: messagebox.showinfo("Set parent", "Select a child task first."); return
         candidates = [item for item in self.app.tasks if item.id != task.id]
-        parent_id = ParentTaskDialog.choose(self, candidates, str((task.tags or {}).get("parent", "")))
+        parent_id = ParentTaskDialog.choose(self, candidates, task.parent)
         if parent_id is None: return
-        tags = dict(task.tags or {})
-        if parent_id: tags["parent"] = parent_id
-        else: tags.pop("parent", None)
-        try: self.app.store.update(replace(task, tags=tags)); self.app.refresh()
+        try: self.app.store.update(replace(task, parent=parent_id)); self.app.refresh()
         except Exception as error: messagebox.showerror("Update failed", str(error))
 
 
@@ -369,15 +354,34 @@ class TaskrApp(ttk.Frame):
         master.title(window_title()); master.geometry("1180x650")
         toolbar = ttk.Frame(self); toolbar.pack(fill="x", pady=(0, 8))
         ttk.Button(toolbar, text="Add Tasks", command=self.open_add_tasks).pack(side="left")
+        ttk.Label(toolbar, text="Mode").pack(side="left", padx=(12, 4))
+        mode_names = {"category0": "ac", "category1": "vehicles", "category2": "home"}
+        current_mode = config.views[0].mode if config.views else "category0"
+        self.mode = tk.StringVar(value=mode_names.get(current_mode, "ac"))
+        mode_box = ttk.Combobox(toolbar, textvariable=self.mode, state="readonly", width=12,
+                                values=("ac", "vehicles", "home"))
+        mode_box.pack(side="left"); mode_box.bind("<<ComboboxSelected>>", self.change_mode)
         ttk.Button(toolbar, text="+ View", command=self.add_view).pack(side="left", padx=6)
         ttk.Button(toolbar, text="− View", command=self.remove_view).pack(side="left")
         ttk.Button(toolbar, text="Rename", command=self.rename_view).pack(side="left", padx=6)
         self.sync_text = tk.StringVar(value="Sync: checking…")
         ttk.Label(toolbar, textvariable=self.sync_text).pack(side="right")
         self.tabs = ttk.Notebook(self); self.tabs.pack(fill="both", expand=True)
+        self.tabs.bind("<<NotebookTabChanged>>", self.show_view_mode)
         self.views: list[ViewPane] = []
         for settings in config.views: self._append_view(settings)
         self.refresh()
+
+    def change_mode(self, _event: tk.Event | None = None) -> None:
+        names = {"ac": "category0", "vehicles": "category1", "home": "category2"}
+        mode = names[self.mode.get()]
+        self.views[self.tabs.index("current")].settings.mode = mode
+        self.save_views(); self.refresh()
+
+    def show_view_mode(self, _event: tk.Event | None = None) -> None:
+        if not self.views: return
+        names = {"category0": "ac", "category1": "vehicles", "category2": "home"}
+        self.mode.set(names.get(self.views[self.tabs.index("current")].settings.mode, "ac"))
 
     def _append_view(self, settings: ViewConfig) -> None:
         pane = ViewPane(self, self.tabs, settings); self.views.append(pane); self.tabs.add(pane, text=settings.name)
@@ -402,32 +406,28 @@ class TaskrApp(ttk.Frame):
         body = ttk.Frame(window, padding=12); body.pack(fill="both", expand=True)
         inputs: dict[str, object] = {}
         active_view = self.views[self.tabs.index("current")].settings
-        for row, (label, values) in enumerate((("Category", self.config.categories), ("Reference", self.config.references), ("Assigned", self.config.assigned))):
-            ttk.Label(body, text=label).grid(row=row, column=0, sticky="w", pady=4)
-            filtered = add_task_filter_value(active_view, label) if label in ("Category", "Reference") else ""
-            choices = list(dict.fromkeys(([filtered] if filtered else []) + list(values)))
-            box = ttk.Combobox(body, values=choices, width=55); box.grid(row=row, column=1, sticky="ew")
-            if filtered: box.set(filtered)
-            inputs[label] = box
-        ttk.Label(body, text="Parent").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(body, text="Assigned").grid(row=0, column=0, sticky="w", pady=4)
+        assigned = ttk.Combobox(body, values=self.config.assigned, width=55)
+        assigned.grid(row=0, column=1, sticky="ew"); inputs["Assigned"] = assigned
+        ttk.Label(body, text="Parent").grid(row=1, column=0, sticky="w", pady=4)
         parent_tasks = [task for task in self.tasks if task_matches(task, active_view)]
         parent_labels = [""] + [f"{task.task} — {task.id}" for task in parent_tasks]
         parent = ttk.Combobox(body, values=parent_labels, state="readonly", width=55)
-        parent.grid(row=3, column=1, sticky="ew"); parent.current(0); inputs["Parent"] = parent
-        for row, label in enumerate(("Task", "Details"), 4):
+        parent.grid(row=1, column=1, sticky="ew"); parent.current(0); inputs["Parent"] = parent
+        for row, label in enumerate(("Task", "Details"), 2):
             ttk.Label(body, text=label).grid(row=row, column=0, sticky="nw", pady=4)
             widget = tk.Text(body, height=2 if label == "Task" else 5, width=55); widget.grid(row=row, column=1, sticky="ew"); inputs[label] = widget
-        ttk.Label(body, text="Create for").grid(row=6, column=0, sticky="w")
-        buttons = ttk.Frame(body); buttons.grid(row=6, column=1, sticky="w", pady=8)
+        ttk.Label(body, text="Required").grid(row=4, column=0, sticky="w")
+        buttons = ttk.Frame(body); buttons.grid(row=4, column=1, sticky="w", pady=8)
 
-        def create_for(target: date | None) -> None:
+        def create_for(required: date | None) -> None:
             try:
-                values = {key.lower(): inputs[key].get().strip() for key in ("Category", "Reference", "Assigned")}
+                values = {"assigned": inputs["Assigned"].get().strip(), "mode": active_view.mode}
                 values["task"] = inputs["Task"].get("1.0", "end").strip(); values["details"] = inputs["Details"].get("1.0", "end").strip()
                 parent_index = parent.current()
-                if parent_index > 0: values["tags"] = {"parent": parent_tasks[parent_index - 1].id}
-                self.store.create(Task.new(user=self.config.user, target=target, **values))
-                self.config.remember(values["category"], values["reference"], values["assigned"]); self.config.save()
+                if parent_index > 0: values["parent"] = parent_tasks[parent_index - 1].id
+                self.store.create(Task.new(user=self.config.user, required=required, **values))
+                self.config.remember(values["assigned"]); self.config.save()
                 window.destroy(); self.refresh()
             except Exception as error: messagebox.showerror("Create failed", str(error), parent=window)
 
@@ -444,7 +444,7 @@ class TaskrApp(ttk.Frame):
             ttk.Button(buttons, text=name, command=lambda n=name: create_for(target_date(n))).pack(side="left")
         ttk.Button(buttons, text="Future date…", command=future).pack(side="left")
         ttk.Button(buttons, text="No date", command=lambda: create_for(None)).pack(side="left")
-        ttk.Label(body, text="Selecting a date creates the task.").grid(row=7, column=1, sticky="w")
+        ttk.Label(body, text="Selecting a date creates the task and initializes Priority.").grid(row=5, column=1, sticky="w")
         body.columnconfigure(1, weight=1)
 
     def refresh(self) -> None:

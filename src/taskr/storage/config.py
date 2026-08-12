@@ -13,8 +13,7 @@ class ViewConfig:
     """The persisted name and filters for one task view."""
 
     name: str = "View"
-    category: str = ""
-    reference: str = ""
+    mode: str = "category0"
     date_from: str = ""
     date_to: str = ""
     status: str = ""
@@ -23,7 +22,7 @@ class ViewConfig:
     column_filters: dict[str, list[str]] = field(default_factory=dict)
     # The UI normalizes an empty or stale setting to at least the Task column.
     visible_columns: list[str] = field(default_factory=lambda: [
-        "ID", "Category", "Reference", "Task", "Details", "Target",
+        "ID", "Parent", "Task", "Details", "Required",
         "Assigned", "Priority", "Status", "Notes",
     ])
 
@@ -44,8 +43,6 @@ def default_cache_path() -> Path:
 class AppConfig:
     api_url: str = ""
     user: str = ""
-    categories: list[str] = field(default_factory=list)
-    references: list[str] = field(default_factory=list)
     assigned: list[str] = field(default_factory=list)
     views: list[ViewConfig] = field(default_factory=default_views)
 
@@ -56,17 +53,26 @@ class AppConfig:
         data["api_url"] = os.environ.get("TASKR_API_URL", data.get("api_url", ""))
         data["user"] = os.environ.get("TASKR_USER", data.get("user", ""))
         raw_views = data.get("views")
-        views = ([ViewConfig(**view) for view in raw_views]
-                 if isinstance(raw_views, list) else default_views())
+        views = default_views()
+        if isinstance(raw_views, list):
+            views = []
+            renamed = {"Reference": "Parent", "Target": "Required"}
+            for raw in raw_views:
+                view = dict(raw)
+                view.pop("category", None); view.pop("reference", None)
+                view["visible_columns"] = [renamed.get(name, name) for name in view.get("visible_columns", [])]
+                view["column_filters"] = {renamed.get(name, name): values
+                                          for name, values in view.get("column_filters", {}).items()
+                                          if name != "Category"}
+                views.append(ViewConfig(**view))
         return cls(
             api_url=data.get("api_url", ""), user=data.get("user", ""),
-            categories=list(data.get("categories", [])), references=list(data.get("references", [])),
             assigned=list(data.get("assigned", [])),
             views=views,
         )
 
-    def remember(self, category: str, reference: str, assigned: str) -> None:
-        for collection, value in ((self.categories, category), (self.references, reference), (self.assigned, assigned)):
+    def remember(self, assigned: str) -> None:
+        for collection, value in ((self.assigned, assigned),):
             if value and value not in collection:
                 collection.append(value)
                 collection.sort(key=str.casefold)

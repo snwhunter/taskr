@@ -9,7 +9,7 @@ class Remote:
     def list(self): return list(self.rows.values())
     def create(self, task): self.rows[task.id] = task; return task
     def update(self, task): self.rows[task.id] = task; return task
-    def complete(self, task_id):
+    def complete(self, task_id, mode="category0"):
         task = self.rows[task_id]
         self.rows[task_id] = Task.from_record({**task.to_record(), "Status": "Complete"})
         return self.rows[task_id]

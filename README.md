@@ -27,10 +27,11 @@ one JSON `POST` route with these actions:
 * `update` — replaces an identified row (an omitted `Tags` value is preserved);
 * `complete` — changes only `Status` to `Complete`.
 
-The Sheet remains the source of truth and must be named `Tasks`, with these exact
-headers in row 1 and exact order:
+The Sheet remains the source of truth. Tasks are separated into three mode sheets:
+`category0` is displayed as **ac** (work), `category1` as **vehicles**, and
+`category2` as **home**. Each sheet must have these exact headers in row 1:
 
-`ID, Category, Reference, Task, Details, Target, Assigned, Priority, Status, Notes, Tags`
+`ID, Parent, Task, Details, Required, Assigned, Priority, Status, Notes, Tags`
 
 ## Deploy the Apps Script
 
@@ -64,19 +65,20 @@ Alternatively create `~/.config/taskr/config.json`:
 {
   "api_url": "https://script.google.com/macros/s/.../exec",
   "user": "your-name",
-  "categories": [],
-  "references": [],
   "assigned": []
 }
 ```
 
 Use **Add Tasks** to open the task-entry popup. There is no separate submit
 button: selecting EOD, EOW, EOM, a future date, or no date creates the task.
-Category, Reference, and Assigned histories are saved to the config file for the
-editable autocomplete boxes. Category and Reference are prefilled when the
-active view has an unambiguous filter for them. The optional Parent pull-down
-stores the chosen task's ID in Tags. Newly created tasks have blank Priority,
-Status, and Notes and provenance in Tags.
+Assigned history is saved to the config file for the editable autocomplete box.
+Each view remembers its mode. The optional Parent pull-down stores the chosen
+task's ID in the `Parent` column, creating a durable relationship. `Required` is
+the task's required date. A new task initializes `Priority` as
+`<target date>.<priority to parent>.<priority to view>`, with its target date
+copied from `Required`. The two dates are independent after creation, so editing
+`Required` does not overwrite an explicitly changed priority target. Status and
+Notes start blank; provenance remains in Tags.
 
 The app starts with five task views. The **+ View**, **− View**, and **Rename**
 controls are grouped across the top. Click the dropdown marker in any table
@@ -88,7 +90,7 @@ same field edit to all selected tasks. Notes editing offers separate **Replace n
 **Append edit** actions; appended text is prefixed with the user and timestamp.
 Select a row and use
 **Complete task**. **Set parent…** stores the selected parent ID in the child's
-`Tags` object. A parent can be chosen from its row or the pull-down, and visible
+`Parent` field. A parent can be chosen from its row or the pull-down, and visible
 children are nested below their parent. Task, Details, and Notes remain
 left-aligned while the other columns are centered.
 

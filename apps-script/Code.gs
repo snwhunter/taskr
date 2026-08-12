@@ -1,7 +1,7 @@
 /** Spreadsheet-bound API used by the desktop app. */
-const TASK_SHEET = 'Tasks';
+const MODES = {category0: 'category0', category1: 'category1', category2: 'category2'};
 const LOG_SHEET = 'log';
-const TASK_COLUMNS = ['ID', 'Category', 'Reference', 'Task', 'Details', 'Target',
+const TASK_COLUMNS = ['ID', 'Parent', 'Task', 'Details', 'Required',
   'Assigned', 'Priority', 'Status', 'Notes', 'Tags'];
 const LOG_COLUMNS = ['Timestamp', 'Source', 'Message', 'Data'];
 const STATUSES = ['', 'InProgress', 'Blocked', 'Complete'];
@@ -26,9 +26,11 @@ function doPost(e) {
   }
 }
 
-function sheet_() {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(TASK_SHEET);
-  if (!sheet) throw new Error('Missing worksheet: ' + TASK_SHEET);
+function sheet_(mode) {
+  const name = MODES[mode];
+  if (!name) throw new Error('Invalid mode: ' + mode);
+  const sheet = SpreadsheetApp.getActive().getSheetByName(name);
+  if (!sheet) throw new Error('Missing worksheet: ' + name);
   const headers = sheet.getRange(1, 1, 1, TASK_COLUMNS.length).getDisplayValues()[0];
   if (headers.join('\u001f') !== TASK_COLUMNS.join('\u001f'))
     throw new Error('Tasks headers must exactly match: ' + TASK_COLUMNS.join(', '));
@@ -54,14 +56,16 @@ function trackerlog_(source, message, data) {
   ]);
 }
 
-function rows_() {
-  const sheet = sheet_();
+function rows_(mode) {
+  const sheet = sheet_(mode);
   if (sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, TASK_COLUMNS.length).getDisplayValues()
     .filter(row => row[0]).map(row => Object.fromEntries(TASK_COLUMNS.map((name, i) => [name, row[i]])));
 }
 
-function listTasks_() { return rows_(); }
+function listTasks_() {
+  return Object.keys(MODES).flatMap(mode => rows_(mode).map(row => Object.assign({Mode: mode}, row)));
+}
 
 function normalize_(record) {
   const result = {};
@@ -86,15 +90,15 @@ function sourceFrom_(record) {
 
 function createTask_(input) {
   const task = normalize_(input.task || {});
-  if (rows_().some(row => row.ID === task.ID)) throw new Error('Duplicate ID: ' + task.ID);
-  sheet_().appendRow(TASK_COLUMNS.map(name => task[name]));
+  if (rows_(input.mode).some(row => row.ID === task.ID)) throw new Error('Duplicate ID: ' + task.ID);
+  sheet_(input.mode).appendRow(TASK_COLUMNS.map(name => task[name]));
   trackerlog_(sourceFrom_(task), 'Added', {id: task.ID, task: task});
   return task;
 }
 
 function updateTask_(input) {
-  const sheet = sheet_();
-  const values = rows_();
+  const sheet = sheet_(input.mode);
+  const values = rows_(input.mode);
   const index = values.findIndex(row => row.ID === input.id);
   if (index < 0) throw new Error('Task not found: ' + input.id);
   const old = values[index];
@@ -124,5 +128,5 @@ function updateTask_(input) {
 }
 
 function completeTask_(input) {
-  return updateTask_({id: input.id, changes: {Status: 'Complete'}});
+  return updateTask_({mode: input.mode, id: input.id, changes: {Status: 'Complete'}});
 }

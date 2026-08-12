@@ -43,11 +43,15 @@ class SQLiteTaskStore:
 
     @staticmethod
     def _encode(task: Task) -> str:
-        return json.dumps(task.to_record(), separators=(",", ":"))
+        return json.dumps({"Mode": task.mode, **task.to_record()}, separators=(",", ":"))
 
     @staticmethod
     def _decode(value: str) -> Task:
         return Task.from_record(json.loads(value))
+
+    @staticmethod
+    def _key(task: Task) -> str:
+        return f"{task.mode}:{task.id}"
 
     def list(self) -> list[Task]:
         with self._connect() as database:
@@ -59,11 +63,11 @@ class SQLiteTaskStore:
         with self._connect() as database:
             database.execute(
                 "INSERT INTO tasks(id, record) VALUES (?, ?) "
-                "ON CONFLICT(id) DO UPDATE SET record=excluded.record", (task.id, encoded)
+                "ON CONFLICT(id) DO UPDATE SET record=excluded.record", (self._key(task), encoded)
             )
             database.execute(
                 "INSERT INTO pending(action, task_id, record) VALUES (?, ?, ?)",
-                (action, task.id, encoded),
+                (action, self._key(task), encoded),
             )
         return task
 
@@ -93,11 +97,11 @@ class SQLiteTaskStore:
                 queued = database.execute(
                     "SELECT sequence, action, task_id, record FROM pending ORDER BY sequence"
                 ).fetchall()
-            for sequence, action, task_id, encoded in queued:
+            for sequence, action, _task_key, encoded in queued:
                 task = self._decode(encoded)
                 if action == "create": self.remote.create(task)
                 elif action == "update": self.remote.update(task)
-                else: self.remote.complete(task_id)
+                else: self.remote.complete(task.id, task.mode)
                 with self._connect() as database:
                     database.execute("DELETE FROM pending WHERE sequence=?", (sequence,))
 
@@ -106,7 +110,7 @@ class SQLiteTaskStore:
             with self._connect() as database:
                 database.execute("DELETE FROM tasks")
                 database.executemany("INSERT INTO tasks(id, record) VALUES (?, ?)",
-                                     [(task.id, self._encode(task)) for task in remote_tasks])
+                                     [(self._key(task), self._encode(task)) for task in remote_tasks])
                 # A UI edit may have been queued while the network request was
                 # in flight. Reapply every outstanding local record so the
                 # remote snapshot cannot make that edit disappear.

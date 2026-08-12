@@ -35,10 +35,10 @@ class AppsScriptTaskStore:
         return [Task.from_record(row) for row in self._call("list")]
 
     def create(self, task: Task) -> Task:
-        return Task.from_record(self._call("create", {"task": task.with_id().to_record()}))
+        return Task.from_record(self._call("create", {"mode": task.mode, "task": task.with_id().to_record()}), mode=task.mode)
 
     def update(self, task: Task) -> Task:
-        return Task.from_record(self._call("update", {"id": task.id, "changes": task.to_record()}))
+        return Task.from_record(self._call("update", {"mode": task.mode, "id": task.id, "changes": task.to_record()}), mode=task.mode)
 
-    def complete(self, task_id: str) -> Task:
-        return Task.from_record(self._call("complete", {"id": task_id}))
+    def complete(self, task_id: str, mode: str = "category0") -> Task:
+        return Task.from_record(self._call("complete", {"mode": mode, "id": task_id}), mode=mode)
