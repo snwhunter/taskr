@@ -36,3 +36,29 @@ def test_old_view_columns_are_migrated(tmp_path):
     view = AppConfig.load(path).views[0]
     assert view.visible_columns == ["Task", "Parent", "Required"]
     assert view.column_filters == {"Parent": ["R1"]}
+
+
+def test_each_mode_has_an_independent_ordered_view_collection(tmp_path):
+    path = tmp_path / "config.json"
+    config = AppConfig()
+    config.views_for("category0")[0].name = "AC only"
+    assert config.views_for("category2")[0].name == "View 1"
+    config.reorder_view("category0", 0, 2)
+    assert config.views_for("category0")[2].name == "AC only"
+    assert [view.name for view in config.views_for("category2")] == [f"View {n}" for n in range(1, 6)]
+    config.save(path)
+    loaded = AppConfig.load(path)
+    assert loaded.views_for("category0")[2].name == "AC only"
+    assert loaded.views_for("category2")[0].mode == "category2"
+
+
+def test_legacy_global_views_are_grouped_by_mode(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"views": [
+        {"name": "Vehicle view", "mode": "category1"},
+        {"name": "Home view", "mode": "category2"},
+    ]}))
+    config = AppConfig.load(path)
+    assert [view.name for view in config.views_for("category1")] == ["Vehicle view"]
+    assert [view.name for view in config.views_for("category2")] == ["Home view"]
+

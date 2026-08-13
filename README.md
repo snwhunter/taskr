@@ -80,8 +80,10 @@ copied from `Required`. The two dates are independent after creation, so editing
 `Required` does not overwrite an explicitly changed priority target. Status and
 Notes start blank; provenance remains in Tags.
 
-The app starts with five task views. The **+ View**, **− View**, and **Rename**
-controls are grouped across the top. Click the dropdown marker in any table
+Each mode owns an independent collection that starts with five task views. The
+**+ View**, **− View**, and **Edit View…** controls are grouped across the top;
+the arrow buttons reorder the active view within its mode. The edit popup changes
+the view name, date range, status, and visible columns together. Click the dropdown marker in any table
 heading to search and select that column's visible values; filters from multiple
 columns are combined. Use **Columns…** to show or hide fields independently in
 each view. Each tab's name, visible columns, and filter selections are remembered
@@ -101,3 +103,4 @@ the Apps Script request is in flight. When synchronization fails, the status
 includes the safe error summary. Use **Logs** to open a diagnostic panel with
 copy and clear actions. Diagnostics are also retained in a rotating `taskr.log`
 beside the SQLite cache; common credential values are redacted.
+
