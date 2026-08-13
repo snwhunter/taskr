@@ -209,9 +209,9 @@ class ViewPane(ttk.Frame):
         self.table.bind("<Double-1>", self.edit_cell)
         buttons = ttk.Frame(self); buttons.pack(fill="x")
         ttk.Button(buttons, text="Refresh", command=app.refresh).pack(side="left")
-        ttk.Button(buttons, text="Columnsâ€¦", command=lambda: ColumnVisibilityDialog(self)).pack(side="left", padx=6)
-        ttk.Button(buttons, text="Edit selectedâ€¦", command=self.edit_selected).pack(side="left")
-        ttk.Button(buttons, text="Set parentâ€¦", command=self.set_parent).pack(side="right")
+        ttk.Button(buttons, text="Columns…", command=lambda: ColumnVisibilityDialog(self)).pack(side="left", padx=6)
+        ttk.Button(buttons, text="Edit selected…", command=self.edit_selected).pack(side="left")
+        ttk.Button(buttons, text="Set parent…", command=self.set_parent).pack(side="right")
         ttk.Button(buttons, text="Complete task", command=self.complete).pack(side="right", padx=6)
 
     def apply_visible_columns(self) -> None:
@@ -241,7 +241,7 @@ class ViewPane(ttk.Frame):
 
     def update_headings(self) -> None:
         for name in VISIBLE_COLUMNS:
-            marker = " â–¼" if name in self.settings.column_filters else " â–¾"
+            marker = " ▼" if name in self.settings.column_filters else " ▾"
             self.table.heading("#0" if name == "Task" else name, text=name + marker)
 
     def rename(self) -> None:
@@ -349,7 +349,7 @@ class ParentTaskDialog(tk.Toplevel):
         self.title("Set parent"); self.transient(parent.winfo_toplevel()); self.grab_set()
         body = ttk.Frame(self, padding=12); body.pack(fill="both", expand=True)
         ttk.Label(body, text="Parent task (blank removes parent)").pack(anchor="w")
-        self.labels = [""] + [f"{task.task} â€” {task.id}" for task in tasks]
+        self.labels = [""] + [f"{task.task} — {task.id}" for task in tasks]
         self.ids = [""] + [task.id for task in tasks]
         self.choice = ttk.Combobox(body, values=self.labels, state="readonly", width=64)
         self.choice.pack(fill="x", pady=(4, 10)); self.choice.current(self.ids.index(initial) if initial in self.ids else 0)
@@ -443,11 +443,11 @@ class TaskrApp(ttk.Frame):
                                 values=("ac", "vehicles", "home"))
         mode_box.pack(side="left"); mode_box.bind("<<ComboboxSelected>>", self.change_mode)
         ttk.Button(toolbar, text="+ View", command=self.add_view).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="âˆ’ View", command=self.remove_view).pack(side="left")
-        ttk.Button(toolbar, text="Edit Viewâ€¦", command=self.edit_view).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="â—€", command=lambda: self.reorder_view(-1)).pack(side="left")
-        ttk.Button(toolbar, text="â–¶", command=lambda: self.reorder_view(1)).pack(side="left", padx=(2, 6))
-        self.sync_text = tk.StringVar(value="Sync: checkingâ€¦")
+        ttk.Button(toolbar, text="− View", command=self.remove_view).pack(side="left")
+        ttk.Button(toolbar, text="Edit View…", command=self.edit_view).pack(side="left", padx=6)
+        ttk.Button(toolbar, text="◀", command=lambda: self.reorder_view(-1)).pack(side="left")
+        ttk.Button(toolbar, text="▶", command=lambda: self.reorder_view(1)).pack(side="left", padx=(2, 6))
+        self.sync_text = tk.StringVar(value="Sync: checking…")
         ttk.Label(toolbar, textvariable=self.sync_text).pack(side="right")
         ttk.Button(toolbar, text="Logs", command=self.toggle_logs).pack(side="right", padx=(0, 8))
         self.tabs = ttk.Notebook(self); self.tabs.pack(fill="both", expand=True)
@@ -539,7 +539,7 @@ class TaskrApp(ttk.Frame):
         assigned.grid(row=0, column=1, sticky="ew"); inputs["Assigned"] = assigned
         ttk.Label(body, text="Parent").grid(row=1, column=0, sticky="w", pady=4)
         parent_tasks = [task for task in self.tasks if task_matches(task, active_view)]
-        parent_labels = [""] + [f"{task.task} â€” {task.id}" for task in parent_tasks]
+        parent_labels = [""] + [f"{task.task} — {task.id}" for task in parent_tasks]
         parent = ttk.Combobox(body, values=parent_labels, state="readonly", width=55)
         parent.grid(row=1, column=1, sticky="ew"); parent.current(0); inputs["Parent"] = parent
         for row, label in enumerate(("Task", "Details"), 2):
@@ -570,7 +570,7 @@ class TaskrApp(ttk.Frame):
 
         for name in ("EOD", "EOW", "EOM"):
             ttk.Button(buttons, text=name, command=lambda n=name: create_for(target_date(n))).pack(side="left")
-        ttk.Button(buttons, text="Future dateâ€¦", command=future).pack(side="left")
+        ttk.Button(buttons, text="Future date…", command=future).pack(side="left")
         ttk.Button(buttons, text="No date", command=lambda: create_for(None)).pack(side="left")
         ttk.Label(body, text="Selecting a date creates the task and initializes Priority.").grid(row=5, column=1, sticky="w")
         body.columnconfigure(1, weight=1)
@@ -590,7 +590,7 @@ class TaskrApp(ttk.Frame):
 
     def _start_sync(self) -> None:
         if getattr(self, "_syncing", False): return
-        self._syncing = True; self.sync_text.set("Sync: syncingâ€¦")
+        self._syncing = True; self.sync_text.set("Sync: syncing…")
         self._log("INFO", "Sync started")
         results: queue.Queue[Exception | None] = queue.Queue()
 
@@ -606,7 +606,7 @@ class TaskrApp(ttk.Frame):
             if error:
                 pending = self.store.state().pending
                 detail = safe_error(error)
-                self.sync_text.set(f"Sync: offline ({pending} pending) â€” {detail}")
+                self.sync_text.set(f"Sync: offline ({pending} pending) — {detail}")
                 self._log("ERROR", f"Sync failed; {pending} pending: {detail}")
                 return
             self.tasks = self.store.list()
