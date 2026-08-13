@@ -22,10 +22,10 @@ status values blank/unstarted (previously serialized as `None`), `InProgress`,
 The minimal API added in `apps-script/Code.gs` has one diagnostic `GET` route and
 one JSON `POST` route with these actions:
 
-* `list` — returns every populated task row;
-* `create` — validates and appends an exact 11-field row;
-* `update` — replaces an identified row (an omitted `Tags` value is preserved);
-* `complete` — changes only `Status` to `Complete`.
+* `list` â€” returns every populated task row;
+* `create` â€” validates and appends an exact 11-field row;
+* `update` â€” replaces an identified row (an omitted `Tags` value is preserved);
+* `complete` â€” changes only `Status` to `Complete`.
 
 The Sheet remains the source of truth. Tasks are separated into three mode sheets:
 `category0` is displayed as **ac** (work), `category1` as **vehicles**, and
@@ -35,9 +35,9 @@ The Sheet remains the source of truth. Tasks are separated into three mode sheet
 
 ## Deploy the Apps Script
 
-1. Open the spreadsheet and choose **Extensions → Apps Script**.
+1. Open the spreadsheet and choose **Extensions â†’ Apps Script**.
 2. Copy `apps-script/Code.gs` into the bound script project and save it.
-3. Choose **Deploy → New deployment → Web app**. Execute as the script owner and
+3. Choose **Deploy â†’ New deployment â†’ Web app**. Execute as the script owner and
    choose the access setting appropriate for the users of this desktop app.
 4. Copy the deployment `/exec` URL. Deploy a new version after every server-code
    change; merely saving Apps Script does not update an existing deployment.
@@ -80,16 +80,18 @@ copied from `Required`. The two dates are independent after creation, so editing
 `Required` does not overwrite an explicitly changed priority target. Status and
 Notes start blank; provenance remains in Tags.
 
-The app starts with five task views. The **+ View**, **− View**, and **Rename**
-controls are grouped across the top. Click the dropdown marker in any table
+Each mode owns an independent collection that starts with five task views. The
+**+ View**, **âˆ’ View**, and **Edit Viewâ€¦** controls are grouped across the top;
+the arrow buttons reorder the active view within its mode. The edit popup changes
+the view name, date range, status, and visible columns together. Click the dropdown marker in any table
 heading to search and select that column's visible values; filters from multiple
-columns are combined. Use **Columns…** to show or hide fields independently in
+columns are combined. Use **Columnsâ€¦** to show or hide fields independently in
 each view. Each tab's name, visible columns, and filter selections are remembered
-in `config.json`. Select multiple rows and use **Edit selected…** to apply the
+in `config.json`. Select multiple rows and use **Edit selectedâ€¦** to apply the
 same field edit to all selected tasks. Notes editing offers separate **Replace note** and
 **Append edit** actions; appended text is prefixed with the user and timestamp.
 Select a row and use
-**Complete task**. **Set parent…** stores the selected parent ID in the child's
+**Complete task**. **Set parentâ€¦** stores the selected parent ID in the child's
 `Parent` field. A parent can be chosen from its row or the pull-down, and visible
 children are nested below their parent. Task, Details, and Notes remain
 left-aligned while the other columns are centered.
@@ -101,3 +103,4 @@ the Apps Script request is in flight. When synchronization fails, the status
 includes the safe error summary. Use **Logs** to open a diagnostic panel with
 copy and clear actions. Diagnostics are also retained in a rotating `taskr.log`
 beside the SQLite cache; common credential values are redacted.
+
