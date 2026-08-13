@@ -209,9 +209,9 @@ class ViewPane(ttk.Frame):
         self.table.bind("<Double-1>", self.edit_cell)
         buttons = ttk.Frame(self); buttons.pack(fill="x")
         ttk.Button(buttons, text="Refresh", command=app.refresh).pack(side="left")
-        ttk.Button(buttons, text="Columns…", command=lambda: ColumnVisibilityDialog(self)).pack(side="left", padx=6)
-        ttk.Button(buttons, text="Edit selected…", command=self.edit_selected).pack(side="left")
-        ttk.Button(buttons, text="Set parent…", command=self.set_parent).pack(side="right")
+        ttk.Button(buttons, text="Columnsâ€¦", command=lambda: ColumnVisibilityDialog(self)).pack(side="left", padx=6)
+        ttk.Button(buttons, text="Edit selectedâ€¦", command=self.edit_selected).pack(side="left")
+        ttk.Button(buttons, text="Set parentâ€¦", command=self.set_parent).pack(side="right")
         ttk.Button(buttons, text="Complete task", command=self.complete).pack(side="right", padx=6)
 
     def apply_visible_columns(self) -> None:
@@ -241,7 +241,7 @@ class ViewPane(ttk.Frame):
 
     def update_headings(self) -> None:
         for name in VISIBLE_COLUMNS:
-            marker = " ▼" if name in self.settings.column_filters else " ▾"
+            marker = " â–¼" if name in self.settings.column_filters else " â–¾"
             self.table.heading("#0" if name == "Task" else name, text=name + marker)
 
     def rename(self) -> None:
@@ -349,7 +349,7 @@ class ParentTaskDialog(tk.Toplevel):
         self.title("Set parent"); self.transient(parent.winfo_toplevel()); self.grab_set()
         body = ttk.Frame(self, padding=12); body.pack(fill="both", expand=True)
         ttk.Label(body, text="Parent task (blank removes parent)").pack(anchor="w")
-        self.labels = [""] + [f"{task.task} — {task.id}" for task in tasks]
+        self.labels = [""] + [f"{task.task} â€” {task.id}" for task in tasks]
         self.ids = [""] + [task.id for task in tasks]
         self.choice = ttk.Combobox(body, values=self.labels, state="readonly", width=64)
         self.choice.pack(fill="x", pady=(4, 10)); self.choice.current(self.ids.index(initial) if initial in self.ids else 0)
@@ -375,6 +375,58 @@ class ParentTaskDialog(tk.Toplevel):
         return dialog.result
 
 
+class ViewConfigDialog(tk.Toplevel):
+    """Edit the configuration of the active view in one popup."""
+
+    def __init__(self, parent: ViewPane) -> None:
+        super().__init__(parent)
+        self.pane = parent; settings = parent.settings
+        self.title("Edit view"); self.transient(parent.winfo_toplevel()); self.grab_set()
+        body = ttk.Frame(self, padding=12); body.pack(fill="both", expand=True)
+        self.name = tk.StringVar(value=settings.name)
+        self.date_from = tk.StringVar(value=settings.date_from)
+        self.date_to = tk.StringVar(value=settings.date_to)
+        self.status = tk.StringVar(value=settings.status)
+        for row, (label, variable) in enumerate((("Name", self.name), ("Date from", self.date_from),
+                                                  ("Date to", self.date_to), ("Status", self.status))):
+            ttk.Label(body, text=label).grid(row=row, column=0, sticky="w", pady=3)
+            if label == "Status":
+                widget = ttk.Combobox(body, textvariable=variable, state="readonly",
+                                      values=("", "InProgress", "Blocked", "Complete"))
+            else: widget = ttk.Entry(body, textvariable=variable, width=32)
+            widget.grid(row=row, column=1, sticky="ew", pady=3)
+        ttk.Label(body, text="Dates use YYYY-MM-DD; blank means no limit.").grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ttk.Label(body, text="Visible columns").grid(row=5, column=0, columnspan=2, sticky="w")
+        self.columns: dict[str, tk.BooleanVar] = {}
+        visible = set(settings.visible_columns)
+        columns = ttk.Frame(body); columns.grid(row=6, column=0, columnspan=2, sticky="w")
+        for index, column in enumerate(VISIBLE_COLUMNS):
+            value = tk.BooleanVar(value=column in visible); self.columns[column] = value
+            ttk.Checkbutton(columns, text=column, variable=value).grid(
+                row=index // 3, column=index % 3, sticky="w", padx=(0, 12))
+        actions = ttk.Frame(body); actions.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        ttk.Button(actions, text="Cancel", command=self.destroy).pack(side="right")
+        ttk.Button(actions, text="Apply", command=self.accept).pack(side="right", padx=6)
+        body.columnconfigure(1, weight=1)
+
+    def accept(self) -> None:
+        name = self.name.get().strip()
+        selected = [column for column in VISIBLE_COLUMNS if self.columns[column].get()]
+        if not name or not selected:
+            messagebox.showinfo("Edit view", "Enter a name and show at least one column.", parent=self); return
+        try:
+            for value in (self.date_from.get().strip(), self.date_to.get().strip()):
+                if value: date.fromisoformat(value)
+        except ValueError:
+            messagebox.showerror("Edit view", "Dates must use YYYY-MM-DD.", parent=self); return
+        settings = self.pane.settings
+        settings.name, settings.date_from, settings.date_to = name, self.date_from.get().strip(), self.date_to.get().strip()
+        settings.status, settings.visible_columns = self.status.get(), selected
+        self.pane.app.tabs.tab(self.pane, text=name)
+        self.pane.apply_visible_columns(); self.pane.render(); self.pane.app.save_views(); self.destroy()
+
+
 class TaskrApp(ttk.Frame):
     def __init__(self, master: tk.Tk, config: AppConfig, store: SQLiteTaskStore) -> None:
         super().__init__(master, padding=10); self.pack(fill="both", expand=True)
@@ -385,21 +437,24 @@ class TaskrApp(ttk.Frame):
         ttk.Button(toolbar, text="Add Tasks", command=self.open_add_tasks).pack(side="left")
         ttk.Label(toolbar, text="Mode").pack(side="left", padx=(12, 4))
         mode_names = {"category0": "ac", "category1": "vehicles", "category2": "home"}
-        current_mode = config.views[0].mode if config.views else "category0"
+        current_mode = "category0"
         self.mode = tk.StringVar(value=mode_names.get(current_mode, "ac"))
         mode_box = ttk.Combobox(toolbar, textvariable=self.mode, state="readonly", width=12,
                                 values=("ac", "vehicles", "home"))
         mode_box.pack(side="left"); mode_box.bind("<<ComboboxSelected>>", self.change_mode)
         ttk.Button(toolbar, text="+ View", command=self.add_view).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="− View", command=self.remove_view).pack(side="left")
-        ttk.Button(toolbar, text="Rename", command=self.rename_view).pack(side="left", padx=6)
-        self.sync_text = tk.StringVar(value="Sync: checking…")
+        ttk.Button(toolbar, text="âˆ’ View", command=self.remove_view).pack(side="left")
+        ttk.Button(toolbar, text="Edit Viewâ€¦", command=self.edit_view).pack(side="left", padx=6)
+        ttk.Button(toolbar, text="â—€", command=lambda: self.reorder_view(-1)).pack(side="left")
+        ttk.Button(toolbar, text="â–¶", command=lambda: self.reorder_view(1)).pack(side="left", padx=(2, 6))
+        self.sync_text = tk.StringVar(value="Sync: checkingâ€¦")
         ttk.Label(toolbar, textvariable=self.sync_text).pack(side="right")
         ttk.Button(toolbar, text="Logs", command=self.toggle_logs).pack(side="right", padx=(0, 8))
         self.tabs = ttk.Notebook(self); self.tabs.pack(fill="both", expand=True)
         self.tabs.bind("<<NotebookTabChanged>>", self.show_view_mode)
         self.views: list[ViewPane] = []
-        for settings in config.views: self._append_view(settings)
+        self.current_mode = current_mode
+        self._load_mode_views()
         self.log_panel = ttk.Frame(self, padding=(0, 8, 0, 0))
         log_actions = ttk.Frame(self.log_panel); log_actions.pack(fill="x")
         ttk.Label(log_actions, text="Diagnostics").pack(side="left")
@@ -431,28 +486,44 @@ class TaskrApp(ttk.Frame):
 
     def change_mode(self, _event: tk.Event | None = None) -> None:
         names = {"ac": "category0", "vehicles": "category1", "home": "category2"}
-        mode = names[self.mode.get()]
-        self.views[self.tabs.index("current")].settings.mode = mode
-        self.save_views(); self.refresh()
+        self.current_mode = names[self.mode.get()]
+        self._load_mode_views(); self.refresh()
 
     def show_view_mode(self, _event: tk.Event | None = None) -> None:
         if not self.views: return
-        names = {"category0": "ac", "category1": "vehicles", "category2": "home"}
-        self.mode.set(names.get(self.views[self.tabs.index("current")].settings.mode, "ac"))
+        return
+
+    def _load_mode_views(self) -> None:
+        for tab in self.tabs.tabs(): self.tabs.forget(tab)
+        self.views.clear()
+        for settings in self.config.views_for(self.current_mode): self._append_view(settings)
 
     def _append_view(self, settings: ViewConfig) -> None:
         pane = ViewPane(self, self.tabs, settings); self.views.append(pane); self.tabs.add(pane, text=settings.name)
 
     def add_view(self) -> None:
-        settings = ViewConfig(name=f"View {len(self.views) + 1}")
-        self.config.views.append(settings); self._append_view(settings); self.tabs.select(self.views[-1]); self.save_views()
+        settings = ViewConfig(name=f"View {len(self.views) + 1}", mode=self.current_mode)
+        self.config.views_for(self.current_mode).append(settings)
+        self._append_view(settings); self.tabs.select(self.views[-1]); self.save_views()
 
     def remove_view(self) -> None:
         if len(self.views) == 1: messagebox.showinfo("Remove view", "At least one view is required."); return
-        index = self.tabs.index("current"); self.tabs.forget(index); self.views.pop(index); self.config.views.pop(index); self.save_views()
+        index = self.tabs.index("current"); self.tabs.forget(index); self.views.pop(index)
+        self.config.views_for(self.current_mode).pop(index); self.save_views()
 
     def rename_view(self) -> None:
         self.views[self.tabs.index("current")].rename()
+
+    def edit_view(self) -> None:
+        ViewConfigDialog(self.views[self.tabs.index("current")])
+
+    def reorder_view(self, offset: int) -> None:
+        old_index = self.tabs.index("current")
+        new_index = old_index + offset
+        if not 0 <= new_index < len(self.views): return
+        self.config.reorder_view(self.current_mode, old_index, new_index)
+        pane = self.views.pop(old_index); self.views.insert(new_index, pane)
+        self.tabs.insert(new_index, pane); self.tabs.select(pane); self.save_views()
 
     def save_views(self) -> None:
         try: self.config.save()
@@ -468,7 +539,7 @@ class TaskrApp(ttk.Frame):
         assigned.grid(row=0, column=1, sticky="ew"); inputs["Assigned"] = assigned
         ttk.Label(body, text="Parent").grid(row=1, column=0, sticky="w", pady=4)
         parent_tasks = [task for task in self.tasks if task_matches(task, active_view)]
-        parent_labels = [""] + [f"{task.task} — {task.id}" for task in parent_tasks]
+        parent_labels = [""] + [f"{task.task} â€” {task.id}" for task in parent_tasks]
         parent = ttk.Combobox(body, values=parent_labels, state="readonly", width=55)
         parent.grid(row=1, column=1, sticky="ew"); parent.current(0); inputs["Parent"] = parent
         for row, label in enumerate(("Task", "Details"), 2):
@@ -499,7 +570,7 @@ class TaskrApp(ttk.Frame):
 
         for name in ("EOD", "EOW", "EOM"):
             ttk.Button(buttons, text=name, command=lambda n=name: create_for(target_date(n))).pack(side="left")
-        ttk.Button(buttons, text="Future date…", command=future).pack(side="left")
+        ttk.Button(buttons, text="Future dateâ€¦", command=future).pack(side="left")
         ttk.Button(buttons, text="No date", command=lambda: create_for(None)).pack(side="left")
         ttk.Label(body, text="Selecting a date creates the task and initializes Priority.").grid(row=5, column=1, sticky="w")
         body.columnconfigure(1, weight=1)
@@ -519,7 +590,7 @@ class TaskrApp(ttk.Frame):
 
     def _start_sync(self) -> None:
         if getattr(self, "_syncing", False): return
-        self._syncing = True; self.sync_text.set("Sync: syncing…")
+        self._syncing = True; self.sync_text.set("Sync: syncingâ€¦")
         self._log("INFO", "Sync started")
         results: queue.Queue[Exception | None] = queue.Queue()
 
@@ -535,7 +606,7 @@ class TaskrApp(ttk.Frame):
             if error:
                 pending = self.store.state().pending
                 detail = safe_error(error)
-                self.sync_text.set(f"Sync: offline ({pending} pending) — {detail}")
+                self.sync_text.set(f"Sync: offline ({pending} pending) â€” {detail}")
                 self._log("ERROR", f"Sync failed; {pending} pending: {detail}")
                 return
             self.tasks = self.store.list()
@@ -562,3 +633,4 @@ def main() -> None:
 
 
 if __name__ == "__main__": main()
+
